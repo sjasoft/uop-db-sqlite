@@ -1,20 +1,15 @@
 [project]
-name = "sjasoft-uopdb-sqlite"
+name = "uop-db-sqlite"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Samantha Atkins", email = "samantha@sjasoft.com" }
-]
+authors = [{ name = "Samantha Atkins", email = "samantha@sjasoft.com" }]
 requires-python = ">=3.12"
-dependencies = [
-    "pydantic==1.10.7",
-    "sqlalchemy>=2.0.43",
-]
+dependencies = ["pydantic==1.10.7", "sqlalchemy>=2.0.43"]
 
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
