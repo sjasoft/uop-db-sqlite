@@ -98,6 +98,13 @@ def columns_from(source, extractor):
 def make_table(base, table_name, columns):
     return Table(table_name, base, *columns)
 
+def table_from_schema(schema, name):
+    if isinstance(schema, meta.MetaClass):
+        return table_from_attrs(schema, Base.metadata, name)
+    elif isinstance(schema, BaseModel):
+        return table_from_pydantic(schema, Base.metadata, name)
+    else:
+        raise Exception(f'Expected MetaClass or MetaModel, got {type(schema)}')
 
 def table_from_pydantic(model, base, table_name=""):
     if not table_name:
@@ -116,7 +123,7 @@ def create_index(table, columns):
 
 
 class AlchemyCollection(db_coll.DBCollection):
-    def __init__(self, db, table, indexed=False, tenant_modifier=None, *constraints):
+    def __init__(self, db, table, indexed=False, *constraints):
         # TODO consider preprocessed statements
         self._db = db
         self._engine = self._db._engine
@@ -278,15 +285,17 @@ class AlchemyCollection(db_coll.DBCollection):
 
 
 class AlchemyDatabase(database.Database):
-    def __init__(
-        self,
-        dbname,
-        collections=None,
-        db_brand="sqlite",
-        tenancy="no_tenants",
-        **dbcredentials,
-    ):
-        self._db_name = home_path(dbname)
+    def __init__(self, dbname, tenant_id=None, db_brand='sqlite', *schemas, **dbcredentials):
+        self._db_name = dbname
+        self._db_brand = db_brand
+        self._tables = None
+        self._root_txn = None
+        self._connection = None
+        self._credentials = dbcredentials
+        super().__init__(tenant_id=tenant_id, *schemas, **dbcredentials)
+
+    def open_db(self):
+>>>>>>> standard_collection
         self._connection_string = self.get_connection_string(db_brand, dbcredentials)
         self._engine = create_engine(
             self._connection_string,
@@ -325,49 +334,33 @@ class AlchemyDatabase(database.Database):
         return bool(self.get_existing_table(name))
 
     def get_connection_string(self, db_brand, dbcredentials):
-        default = f"{db_brand}:///{self._db_name}"
-        return default
-
-    def get_managed_collection(self, coll_name):
-        coll = self.get_existing_collection(coll_name)
-        if not coll:
-            table = self.get_existing_table(coll_name)
-            if table:
-                coll = AlchemyCollection(self, table)
+        if self._db_brand == 'sqlite':
+            in_memory = dbcredentials.pop('in_memory', False)
+            if in_memory:
+                return f'{self._db_brand}://:memory:'
             else:
-                raise Exception(f"Expected existing table named {coll_name}")
-        return coll
+                return f'{self._db_brand}:///{home_path(self._db_name)}'
+        else:
+            driver = self._credentials.pop('driver','')
+            if driver:
+                db_brand = f'{self._db_brand}+{driver}'
+            username = self._credentials.pop('username', '')
+            password = self._credentials.pop('password', '')
+            host = self._credentials.pop('host', 'localhost')
+            port = self._credentials.pop('port', '')
+            host_string = f'{host}:{port}' if port else host
+            if username and password:
+                return f'{db_brand}://{username}:{password}@{host_string}/{self._db_name}'
+            else:
+                raise Exception('username and database required')
 
-    def create_table(self, table_name, columns):
-        table = make_table(Base.metadata, table_name, columns)
-        table.create(self._engine)
-        return table
 
-    def get_standard_collection(self, kind, tenant_modifier=None, name=""):
-        coll_name = name or uop_collection_names[kind]
-        coll = self.get_existing_collection(coll_name)
-        if coll:
-            return coll
-        schema = meta.kind_map[kind]
-        table = self.get_existing_table(coll_name)
-        if table is None:
-            # TODO remmeber to add secondary indices.
-            indices = meta.secondary_indices.get(kind)
-            columns = columns_from(schema, extract_model_fields)
-            table = self.create_table(coll_name, columns)
-            # table = table_from_pydantic(schema, Base.metadata, coll_name)
-            # table.create(self._engine)
-        return AlchemyCollection(self, table, tenant_modifier=tenant_modifier)
+    def wrap_raw_collection(self, raw):
+        return AlchemyCollection(self, raw)
 
-    def get_instance_collection(self, cls):
-        as_dict = cls if isinstance(cls, dict) else cls.dict()
-        coll_name = cls["instance_collection"] or self.random_collection_name()
-
-        table = self.get_existing_table(coll_name)
-        if not table:
-            table = table_from_attrs(cls, Base.metadata, coll_name)
-            table.create(self._engine)
-        return AlchemyCollection(self, table)
+    def get_raw_collection(self, name, schema):
+        existing = self.get_existing_table(name)
+        return existing or table_from_schema(schema, name)
 
     def get_tables(self):
         metadata = Base.metadata
