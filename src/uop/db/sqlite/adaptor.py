@@ -1,4 +1,4 @@
-from uop.db.alchemy.adaptor import AlchemyDatabase, AlchemyCollection
+from uop.db.alchemy.adaptor import AlchemyDatabase
 
 
 class SQLiteDatabase(AlchemyDatabase):
